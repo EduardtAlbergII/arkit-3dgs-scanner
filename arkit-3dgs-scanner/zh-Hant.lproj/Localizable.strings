@@ -1,4 +1,10 @@
 // App text. Keep keys and format placeholders in sync across languages.
+"ARKit" = "ARKit";
+"電腦 COLMAP 重建至少需要 3 張可用照片" = "電腦 COLMAP 重建至少需要 3 張可用照片";
+"COLMAP（電腦）" = "COLMAP（電腦）";
+"匯出姿態來源" = "匯出姿態來源";
+"照片資料，需先在電腦重建姿態" = "照片資料，需先在電腦重建姿態";
+"需在電腦安裝 COLMAP，以照片重新估算姿態。手機不執行 COLMAP，也不會上傳資料。" = "需在電腦安裝 COLMAP，以照片重新估算姿態。手機不執行 COLMAP，也不會上傳資料。";
 "  ← 目前使用" = "  ← 目前使用";
 "%@ 分鐘前" = "%@ 分鐘前";
 "%@ 天前" = "%@ 天前";

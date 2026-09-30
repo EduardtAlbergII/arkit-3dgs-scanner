@@ -2,7 +2,7 @@
 
 [English](TRAINING.md) | **繁體中文**
 
-本頁說明在電腦上訓練；App 也可以直接在手機上訓練（[手機端 3DGS 訓練](ON_DEVICE_3DGS.zh-TW.md)）。使用外部訓練器時，解壓匯出的掃描，使用 `images/ + sparse/0`。模型包含選用影像姿態、逐影像 PINHOLE 內參與初始化點，不含完整 SfM 觀測及 tracks。
+本頁說明在電腦上訓練；App 也可以直接在手機上訓練（[手機端 3DGS 訓練](ON_DEVICE_3DGS.zh-TW.md)）。預設 ARKit 匯出可解壓後使用 `images/ + sparse/0`；這個種子模型包含選用影像姿態、逐影像 PINHOLE 內參與初始化點，但不含完整 SfM 觀測及 tracks。若選擇 **COLMAP（電腦）**，請先執行[獨立重建流程](HISTORY_TRAINING_EXPORT.zh-TW.md#獨立-colmap-重建)；其輸出包含重新估計的姿態、三角化點雲與 SfM tracks。輸入 ZIP 尚不能直接訓練。
 
 ## LichtFeld Studio / MrNeRF
 
@@ -28,7 +28,7 @@ python tools/arkit2gs.py /path/to/scan -o /path/to/dataset --format both
 
 App 採校正錨點，保留集與[照片對齊檢查](POSE_REFINEMENT.zh-TW.md)都通過時才套用 LiDAR 輔助 BA；未通過就保留原姿態。手機未建模的誤差（例如捲簾快門），若訓練器支援相機最佳化，仍可再由訓練器修正。重融合使用同組姿態，不能只改相機而保留未對齊的初始化點雲。
 
-空影像觀測／tracks 可作為此種種子模型匯出，但 BA 無法自行產生缺少的對應。桌面精修需要特徵抽取、匹配、一致的相機／影像 ID、三角化及驗證後再 BA。參考 [COLMAP 已知姿態重建](https://colmap.github.io/faq.html#reconstruct-sparse-dense-model-from-known-camera-poses)。姿態變更後點雲也需對齊或重融合；手機流程本身不要求桌面 COLMAP。
+空影像觀測／tracks 可作為 ARKit 種子模型匯出，但 BA 無法自行產生缺少的對應。`tools/colmap_sfm.py` 提供特徵擷取、匹配與完整重建，而不只是對匯出的空 tracks 執行束調整。它刻意不信任 ARKit 姿態，也不會將舊點雲或深度混入獨立重建的座標。另可參考 [COLMAP 已知姿態重建](https://colmap.github.io/faq.html#reconstruct-sparse-dense-model-from-known-camera-poses)，了解另一種固定輸入姿態的流程。手機流程本身不要求桌面 COLMAP。
 
 ## 選用深度監督
 

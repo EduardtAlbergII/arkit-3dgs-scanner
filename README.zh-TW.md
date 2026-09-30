@@ -17,6 +17,7 @@
 - **訓練前先檢查。** 查看點雲、回放拍攝路線、續掃補拍，並可量測或校正公尺尺度。詳見[融合進度與預覽](docs/FUSION_REVIEW.zh-TW.md)與[公尺尺度](docs/LOOP_CLOSURE_AND_SCALE.zh-TW.md)。
 - **在 iPhone 上訓練 3DGS。** 以 MRNF 為基礎的 Metal 訓練器，加上姿態精修、LiDAR 深度種子與深度損失；訓練中可旋轉查看即時預覽、暫停與續訓，完成後輸出體積小的 SOG 模型分享。詳見[手機端 3DGS 訓練](docs/ON_DEVICE_3DGS.zh-TW.md)。
 - **匯出 COLMAP 資料集。** 原始照片、`sparse/0`、深度與姿態打包成一個 ZIP。詳見[匯出](docs/HISTORY_TRAINING_EXPORT.zh-TW.md)與[外部訓練](docs/TRAINING.zh-TW.md)。
+- **可選擇獨立的 COLMAP 重建。** ARKit 姿態漂移時，將匯出方式切換為 **COLMAP（電腦）**，再於電腦執行工具，匹配照片、三角化點雲並以束調整求出新姿態。這不是手機端 COLMAP；重建座標與尺度獨立於 ARKit。詳見[流程與限制](docs/HISTORY_TRAINING_EXPORT.zh-TW.md#獨立-colmap-重建)。
 - **掃描紀錄。** 停止掃描後自動保存，可以預覽、訓練、另存優化版本、匯出或刪除。
 - **繁體中文（預設）與英文**，在首頁切換。
 

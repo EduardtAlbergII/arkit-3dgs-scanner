@@ -175,11 +175,14 @@ actor ScanLibrary {
         }
     }
 
-    /// Sharing a saved scan must prepare COLMAP too, even if the user never exported live.
-    func archive(_ entry: ScanEntry) throws -> URL {
+    /// ARKit prepares a training model; desktop COLMAP exports isolated photo inputs instead.
+    func archive(_ entry: ScanEntry, method: ExportMethod = .arkit) throws -> URL {
         try validate(entry.directory)
         let directory = entry.directory
         let (records, hasNewFrames) = Self.savedRecords(in: directory)
+        if method == .colmap {
+            return try ExportManager.makeArchive(of: directory, method: method, records: records.isEmpty ? nil : records)
+        }
         guard records.contains(where: { $0.blurVerdict == .keep }) else {
             throw ExportManager.TrainingExportError.noUsableFrames
         }
@@ -194,7 +197,7 @@ actor ScanLibrary {
         // Old scans without a saved cloud reuse the existing bounded preview reconstruction.
         if points == nil { points = try preview(entry).points }
         try ExportManager.writeTrainingDataset(records: records, points: points ?? [], to: directory)
-        return try ExportManager.makeArchive(of: directory)
+        return try ExportManager.makeArchive(of: directory, method: method)
     }
 
     /// Prefer the latest review poses, merging raw frames appended by a resumed scan.

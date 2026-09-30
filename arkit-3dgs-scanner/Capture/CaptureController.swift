@@ -843,9 +843,9 @@ final class CaptureController: NSObject, ObservableObject {
         statusText = corrected > 0 ? L10n.text("姿態已修正 \(corrected) 幀（ARKit 地圖優化）") : nil
     }
 
-    /// 驗收後寫入 COLMAP、PLY 與修正後姿態，打包成外部 3DGS 訓練資料。
-    func exportAndShare() {
-        guard phase == .review,
+    /// ARKit exports a ready training model; desktop SfM packages photos without changing it.
+    func exportAndShare(method: ExportMethod = .arkit) {
+        guard phase == .review || phase == .done,
               let dir = sessionDir else { return }
         guard canUseScan else {
             statusText = L10n.text("尚無可用影像，請繼續掃描後再匯出")
@@ -862,14 +862,16 @@ final class CaptureController: NSObject, ObservableObject {
         Task {
             defer { UIApplication.shared.isIdleTimerDisabled = false }
             do {
-                try await Task.detached(priority: .userInitiated) {
-                    try ExportManager.writeTrainingDataset(records: records, points: points, to: dir,
-                                                           flipWorldUp: flipWorldUp)
-                }.value
-                try await writeFloorPlan(to: dir)
+                if method == .arkit {
+                    try await Task.detached(priority: .userInitiated) {
+                        try ExportManager.writeTrainingDataset(records: records, points: points, to: dir,
+                                                               flipWorldUp: flipWorldUp)
+                    }.value
+                    try await writeFloorPlan(to: dir)
+                }
                 statusText = L10n.text("正在壓縮檔案，完成後即可分享…")
                 let zip = try await Task.detached(priority: .userInitiated) {
-                    try ExportManager.makeArchive(of: dir)
+                    try ExportManager.makeArchive(of: dir, method: method, records: records)
                 }.value
                 _ = await writer?.finish()
                 exportedZip = zip

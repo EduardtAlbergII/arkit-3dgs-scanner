@@ -13,8 +13,31 @@
 
 import SwiftUI
 
+struct ExportMethodPicker: View {
+    @Binding var method: ExportMethod
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            Picker(L10n.text("匯出姿態來源"), selection: $method) {
+                ForEach(ExportMethod.allCases, id: \.self) { method in
+                    Text(method.title).tag(method)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("scanExportMethod")
+            if method == .colmap {
+                Text(method.notice)
+                    .font(.caption)
+                    .foregroundStyle(DS.Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
 struct HUDOverlay: View {
     @ObservedObject var controller: CaptureController
+    @AppStorage(ExportMethod.storageKey) private var exportMethod: ExportMethod = .arkit
     /// 檢視階段重設 3D 視角（由承載點雲的 CaptureView 執行）。
     var onResetView: (() -> Void)? = nil
     /// Opens on-device 3DGS training of the saved scan (closes the capture first).
@@ -48,6 +71,7 @@ struct HUDOverlay: View {
         }
         .sheet(isPresented: $showAdvanced) { scanSettings }
         .sheet(isPresented: $summaryExpanded) { scanDetails }
+        .onChange(of: exportMethod) { _, _ in controller.exportedZip = nil }
         .onChange(of: controller.phase) { _, phase in
             showAdvanced = false
             summaryExpanded = false
@@ -165,7 +189,7 @@ struct HUDOverlay: View {
         case .processing: return L10n.text("正在整理掃描")
         case .review: return L10n.text("檢查掃描成果")
         case .exporting: return L10n.text("正在匯出")
-        case .done: return L10n.text("檔案已準備好")
+        case .done: return controller.exportedZip == nil ? L10n.text("匯出 3DGS 訓練資料") : L10n.text("檔案已準備好")
         }
     }
 
@@ -635,6 +659,8 @@ struct HUDOverlay: View {
                     }
             }
             if onTrain != nil, controller.phase == .review || controller.phase == .done { trainButton }
+            ExportMethodPicker(method: $exportMethod)
+                .disabled(controller.phase == .exporting)
             primaryReviewAction
             secondaryReviewActions
         }
@@ -646,7 +672,7 @@ struct HUDOverlay: View {
     @ViewBuilder
     private var primaryReviewAction: some View {
         switch controller.phase {
-        case .done:
+        case .done where controller.exportedZip != nil:
             if let zip = controller.exportedZip {
                 Button { SystemShare.present([zip]) } label: {
                     DSActionCardLabel(title: L10n.text("分享掃描"), subtitle: L10n.text("檔案已準備好，點此分享"),
@@ -663,9 +689,9 @@ struct HUDOverlay: View {
                 ProgressView().tint(DS.Palette.info)
             }
         default:
-            Button { controller.exportAndShare() } label: {
+            Button { controller.exportAndShare(method: exportMethod) } label: {
                 DSActionCardLabel(title: L10n.text("匯出 3DGS 訓練資料"),
-                                  subtitle: L10n.text("照片、相機姿態與點雲，可在電腦上訓練"), tint: DS.Palette.info) {
+                                  subtitle: exportMethod == .arkit ? exportMethod.notice : L10n.text("照片資料，需先在電腦重建姿態"), tint: DS.Palette.info) {
                     DSActionIcon(symbol: "square.and.arrow.up", tint: DS.Palette.info)
                 }
             }

@@ -6,7 +6,7 @@
 
 現在兩條匯出入口都呼叫 `ExportManager.writeTrainingDataset`。歷史匯出使用 review 姿態（缺少時讀取正式修正姿態／原始姿態），合併續掃新增的影格；只將 `.keep` 影格列入相機模型，存在 RGB 選幀報告時再依選用 ID 過濾。已存點雲最多讀入 250,000 點，舊掃描沒有點雲時使用既有的有界預覽重建。原始照片與深度不會刪除。
 
-產物包含 `images/`、`sparse/0/cameras.bin`、`sparse/0/images.bin`、`sparse/0/points3D.bin`、`points.ply` 與 `poses_refined.jsonl`。COLMAP 相機與點雲使用一致的座標轉換。`points.ply` 仍依原有約定保留 ARKit 世界座標，COLMAP 訓練器應讀取 `sparse/0/points3D.bin`。
+預設 ARKit 匯出包含 `images/`、`sparse/0/cameras.bin`、`sparse/0/images.bin`、`sparse/0/points3D.bin`、`points.ply` 與 `poses_refined.jsonl`。COLMAP 相機與點雲使用一致的座標轉換。`points.ply` 仍依原有約定保留 ARKit 世界座標，COLMAP 訓練器應讀取 `sparse/0/points3D.bin`。僅寫入這個格式**並不會執行 COLMAP SfM**。
 
 匯出前先檢查影格 ID、姿態長度與有限值、內參、影像檔名及檔案存在性；沒有有效訓練影格時回報錯誤，不再靜默略過 sparse。失敗不替換前一份 ZIP。每次進入歷史詳情時清除 UI 中可直接分享的快取 URL，要求重新準備完整訓練包。
 
@@ -14,7 +14,43 @@
 
 壓縮檔改以系統分享表分享檔案本身。SwiftUI 的 `ShareLink(item: URL)` 只交出檔案連結，只有 AirDrop 與「檔案」能接收，LINE、Teams 會失敗。檔案非常大時，仍可能超過接收端 App 自己的大小限制。
 
-## 資料集結構
+## 獨立 COLMAP 重建
+
+掃描後與歷史紀錄的匯出控制可選 **ARKit**（原有可直接訓練的種子模型）或 **COLMAP（電腦）**。選項會跨頁面與重新啟動保留；切換時清除可分享的快取，下一次匯出會使用新方式。拍攝、預覽、量測與手機端 3DGS 訓練仍使用原有 ARKit 流程。
+
+當依 ARKit 初值進行的局部精修無法取得足夠多視角一致性時，可使用 COLMAP：
+
+1. 選擇 **COLMAP（電腦）** 並匯出，自行將 ZIP 傳到電腦。App 不會上傳資料。
+2. 解壓 ZIP。此包刻意不含 `sparse/` 與 `points.ply`：它是 **SfM 輸入**，不是已重建的訓練資料集。包內含 `sfm-request.json`、`poses_refined.jsonl` 中的選用影格紀錄，以及原始照片／深度。手機保存的 ARKit 模型維持不變。
+3. 安裝電腦版 [COLMAP CLI](https://colmap.github.io/install.html) 與 Python 3.10 以上，執行本專案工具（不需額外 Python 套件）：
+
+   ```sh
+   python3 /path/to/repository/tools/colmap_sfm.py /path/to/extracted_scan \
+     -o /path/to/new_colmap_dataset
+   ```
+
+4. 使用**新資料集**的 `images/` 與 `sparse/0` 訓練，而非輸入 ZIP。檢查 `sfm-report.json` 的已註冊／缺漏照片、連通模型數、點數與平均重投影誤差。
+
+工具僅將選用照片複製到暫存區，擷取 SIFT 特徵，進行幾何驗證及引導匹配，再執行含束調整的增量式建圖。ARKit **姿態與點雲完全不作為先驗或初始值**。每張照片保留自身量測的 PINHOLE 內參，包含自動對焦變化；建圖時固定焦距、主點及其他內參。影像尺寸必須符合標定，旋轉或縮放過的副本會被拒絕。去畸變步驟輸出成對的訓練影像與稀疏模型。
+
+在 COLMAP 輸入包中，`poses_refined.jsonl` 可能只含照片 ID、檔名與內參，並不代表已重建姿態。App 會從最新紀錄（含續掃）更新選用清單，不覆寫已保存掃描的附屬檔案。此包應使用 `colmap_sfm.py`，而非 `arkit2gs.py`。
+
+預設使用全配對，讓相隔較遠的回訪也有機會連接；計算量隨照片數呈平方成長，可能很昂貴。`--matching sequential` 使用 20 張重疊範圍及指數間隔配對，但可能錯過長閉環。`--threads N` 控制擷取、匹配與建圖工作執行緒。預設以 CPU 處理，不需 CUDA。`--colmap /path/to/colmap` 可指定安裝位置；工具會偵測舊版 SIFT 與新版 Feature 執行選項名稱。
+
+只發布最大的連通模型，且必須有點雲、至少註冊三張照片與選用輸入的 80%。否則命令失敗，不發布資料集，也不暗中改用 ARKit 幾何。例如 `--min-registered-fraction 0.6` 可明確允許較低涵蓋率；降低門檻前應先檢查缺漏照片清單。既有輸出目錄絕不覆寫；失敗會清理暫存資料並保留原始輸入。
+
+**限制：** 這是電腦端 SfM，不是 iOS COLMAP 整合，也不會自動匯回 App。新模型的尺度／方向任意，未對齊 ARKit；未經獨立驗證的對齊／重融合，不可附加原始 LiDAR 深度、公尺量測或 ARKit PLY 點雲。原始深度只保留在輸入包，不複製到輸出資料集。固定 PINHOLE 標定不會處理滾動快門或未建模的畸變。低紋理、重複圖案、移動模糊、動態物體與不連通視角仍可能失敗；註冊涵蓋率或較低的訓練重投影誤差，不代表公尺精度或 3DGS 品質一定提升。
+
+### COLMAP 回歸檢查
+
+```sh
+python3 tools/test_colmap_sfm.py
+COLMAP_INTEGRATION=1 python3 tools/test_colmap_sfm.py
+```
+
+第一個命令以模擬 CLI 測試流程、逐幀標定、連通模型選擇、失敗、路徑驗證與原始資料保留。可選的整合測試會渲染有紋理的牆角，實際以 CPU COLMAP 完成重建與資料集發布。合成證據不代表 iPhone 的精度、耗時或記憶體量測；宣稱精度提升前，仍需比較真實掃描與獨立量測。
+
+## 資料集結構（ARKit 模式）
 
 訓練影像清單以 `sparse/0/images.bin` 為準；`images/` 保留所有原始照片。
 

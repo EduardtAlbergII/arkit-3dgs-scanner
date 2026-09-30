@@ -17,6 +17,7 @@ Capture photos, camera poses, and point clouds with ARKit, refine them on the ph
 - **Review before you train.** Inspect the point cloud, replay the capture route, continue the scan to fill gaps, and measure or calibrate metric scale. See [fusion review](docs/FUSION_REVIEW.md) and [metric scale](docs/LOOP_CLOSURE_AND_SCALE.md).
 - **Train 3DGS on the iPhone.** A Metal trainer based on MRNF, with pose refinement, LiDAR depth seeds and loss, a live preview you can orbit, pause and resume, and a compact SOG model to share. See [on-device 3DGS training](docs/ON_DEVICE_3DGS.md).
 - **Export a COLMAP dataset.** Original photos, `sparse/0`, depth, and poses in one ZIP. See [export](docs/HISTORY_TRAINING_EXPORT.md) and [external training](docs/TRAINING.md).
+- **Choose an independent COLMAP reconstruction.** If ARKit poses drift, switch the export method to **COLMAP (computer)** and run the desktop tool to match photos, triangulate points, and bundle-adjust new poses. This is not on-device COLMAP; its coordinates and scale are independent of ARKit. See [the workflow and limitations](docs/HISTORY_TRAINING_EXPORT.md#independent-colmap-reconstruction).
 - **Scan history.** Every stopped scan is saved. You can preview, train, refine a copy, export, or delete it.
 - **Traditional Chinese (default) and English**, switchable on the home screen.
 

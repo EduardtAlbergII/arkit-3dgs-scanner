@@ -16,6 +16,27 @@
 import Foundation
 import simd
 
+nonisolated enum ExportMethod: String, CaseIterable, Sendable {
+    case arkit
+    case colmap
+
+    static let storageKey = "scanExportMethod"
+
+    var title: String {
+        switch self {
+        case .arkit: return L10n.text("ARKit")
+        case .colmap: return L10n.text("COLMAP（電腦）")
+        }
+    }
+
+    var notice: String {
+        switch self {
+        case .arkit: return L10n.text("照片、相機姿態與點雲，可在電腦上訓練")
+        case .colmap: return L10n.text("需在電腦安裝 COLMAP，以照片重新估算姿態。手機不執行 COLMAP，也不會上傳資料。")
+        }
+    }
+}
+
 nonisolated extension Data {
     /// 以主機端序（iOS/macOS 皆為 little-endian，即 COLMAP 要求的端序）附加原始 bytes
     mutating func appendLE<T>(_ value: T) {
@@ -28,19 +49,23 @@ nonisolated enum ExportManager {
     static let gaussianTrainingFolder = "gaussian-training"
 
     /// 先寫暫存檔；壓縮完整成功才以正式檔名發布，避免分享半個 ZIP。
-    static func makeArchive(of directory: URL) throws -> URL {
+    static func makeArchive(of directory: URL, method: ExportMethod = .arkit,
+                            records: [FrameRecord]? = nil) throws -> URL {
         let parent = directory.deletingLastPathComponent()
         let destination = parent.appendingPathComponent(directory.lastPathComponent + ".zip")
         let temporary = parent.appendingPathComponent(UUID().uuidString + ".partial")
         defer { try? FileManager.default.removeItem(at: temporary) }
-        // The on-device 3DGS checkpoint and model are not training inputs; the model has its own
-        // archive. Zip a hard-linked mirror without that folder (no media is copied).
+        // Replace regenerated sidecars atomically in the hard-linked mirror; never edit
+        // existing files through their links.
         let fm = FileManager.default
-        if fm.fileExists(atPath: directory.appendingPathComponent(gaussianTrainingFolder).path) {
+        var excluded: Set<String> = [gaussianTrainingFolder, "sfm-request.json", "COLMAP-INSTRUCTIONS.txt"]
+        if method == .colmap { excluded.formUnion(["sparse", "points.ply"]) }
+        if method == .colmap || excluded.contains(where: { fm.fileExists(atPath: directory.appendingPathComponent($0).path) }) {
             let staging = parent.appendingPathComponent(".archive-\(UUID().uuidString)", isDirectory: true)
             let mirror = staging.appendingPathComponent(directory.lastPathComponent, isDirectory: true)
             defer { try? fm.removeItem(at: staging) }
-            try mirrorTree(directory, to: mirror, excluding: [gaussianTrainingFolder])
+            try mirrorTree(directory, to: mirror, excluding: excluded)
+            if method == .colmap { try prepareCOLMAPRequest(in: mirror, records: records) }
             try zipDirectory(mirror, to: temporary)
         } else {
             try zipDirectory(directory, to: temporary)
@@ -51,6 +76,77 @@ nonisolated enum ExportManager {
             try FileManager.default.moveItem(at: temporary, to: destination)
         }
         return destination
+    }
+
+    private struct COLMAPPhotoInput: Encodable {
+        let id: Int
+        let imageFile: String
+        let intrinsics: CameraIntrinsics
+    }
+
+    private struct COLMAPImageReference: Decodable {
+        let imageFile: String
+    }
+
+    private static func prepareCOLMAPRequest(in directory: URL, records: [FrameRecord]?) throws {
+        let fm = FileManager.default
+        let poses = directory.appendingPathComponent("poses_refined.jsonl")
+        if let records {
+            let selection = TrainingFrameSelector.select(records,
+                evidence: TrainingFrameSelector.evidence(records: records, directory: directory),
+                workingDistance: TrainingFrameSelector.workingDistance(records: records, directory: directory))
+            let selected = Set(selection.selectedIDs)
+            let inputs = records.filter { selected.contains($0.id) }
+            guard inputs.count >= 3 else { throw TrainingExportError.insufficientCOLMAPImages }
+            // Desktop SfM consumes calibration, not ARKit transforms; even nonfinite ARKit
+            // poses must not prevent packaging otherwise usable photos.
+            var data = Data()
+            for input in inputs {
+                data.append(try JSONEncoder().encode(COLMAPPhotoInput(
+                    id: input.id, imageFile: input.imageFile, intrinsics: input.intrinsics)))
+                data.append(0x0a)
+            }
+            try data.write(to: poses, options: .atomic)
+            let report = directory.appendingPathComponent("training-selection.json")
+            try JSONEncoder().encode(selection).write(to: report, options: .atomic)
+        }
+        if !fm.fileExists(atPath: poses.path) {
+            guard let source = ["review-poses.jsonl", "poses.jsonl"]
+                .map({ directory.appendingPathComponent($0) })
+                .first(where: { fm.fileExists(atPath: $0.path) }) else {
+                throw TrainingExportError.noUsableFrames
+            }
+            try fm.copyItem(at: source, to: poses)
+        }
+        let inputs = try String(contentsOf: poses, encoding: .utf8).split(whereSeparator: \.isNewline)
+            .map { try JSONDecoder().decode(COLMAPImageReference.self, from: Data($0.utf8)) }
+        guard inputs.count >= 3 else { throw TrainingExportError.insufficientCOLMAPImages }
+        for input in inputs {
+            let name = input.imageFile
+            guard !name.isEmpty, !name.contains("\0"), URL(fileURLWithPath: name).lastPathComponent == name else {
+                throw TrainingExportError.missingImage(name)
+            }
+            let image = directory.appendingPathComponent("images").appendingPathComponent(name)
+            guard (try? image.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else {
+                throw TrainingExportError.missingImage(name)
+            }
+        }
+        let request: [String: Any] = ["version": 1, "method": "colmap", "inputPoses": "poses_refined.jsonl"]
+        try JSONSerialization.data(withJSONObject: request, options: [.prettyPrinted, .sortedKeys])
+            .write(to: directory.appendingPathComponent("sfm-request.json"), options: .atomic)
+        let instructions = """
+        Desktop COLMAP required. This archive is not a ready-to-train sparse model.
+        Re-estimate camera poses from photos on your computer:
+        python3 /path/to/repository/tools/colmap_sfm.py /path/to/extracted_scan -o /path/to/new_dataset
+        No COLMAP runs on the phone and no data is uploaded automatically.
+        The reconstruction is not metric-aligned with ARKit. Do not mix it with LiDAR points or depth.
+
+        需在電腦安裝 COLMAP；此壓縮檔不是可直接訓練的稀疏模型。
+        請在電腦執行上述指令，以照片重新估算姿態。
+        手機不執行 COLMAP，也不會自動上傳資料。
+        重建結果未與 ARKit 的公尺尺度對齊，不可混用 LiDAR 點雲或深度。
+        """
+        try Data(instructions.utf8).write(to: directory.appendingPathComponent("COLMAP-INSTRUCTIONS.txt"), options: .atomic)
     }
 
 
@@ -71,13 +167,14 @@ nonisolated enum ExportManager {
     }
 
     enum TrainingExportError: LocalizedError {
-        case noUsableFrames, invalidFrame(Int), missingImage(String), invalidPoints
+        case noUsableFrames, invalidFrame(Int), missingImage(String), invalidPoints, insufficientCOLMAPImages
         var errorDescription: String? {
             switch self {
             case .noUsableFrames: return L10n.text("沒有可用的相機姿態與清晰影像，無法產生 3DGS 訓練資料")
             case .invalidFrame(let id): return L10n.text("第 \(id) 張影像的相機參數不完整，無法產生訓練資料")
             case .missingImage(let name): return L10n.text("找不到訓練影像：\(name)")
             case .invalidPoints: return L10n.text("點雲含有無效座標，無法產生訓練資料")
+            case .insufficientCOLMAPImages: return L10n.text("電腦 COLMAP 重建至少需要 3 張可用照片")
             }
         }
     }

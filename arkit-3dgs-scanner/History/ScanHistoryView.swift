@@ -349,6 +349,7 @@ private struct ScanCard: View {
 /// switcher picks the view, and a compact panel holds the export action.
 private struct ScanHistoryDetail: View {
     let entry: ScanEntry
+    @AppStorage(ExportMethod.storageKey) private var exportMethod: ExportMethod = .arkit
     @State private var optimizedEntry: ScanEntry?
     @State private var showMeasurements = false
     @State private var showDetails = false
@@ -408,6 +409,10 @@ private struct ScanHistoryDetail: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) { topOverlay }
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomPanel }
+        .onChange(of: exportMethod) { _, _ in
+            archive = nil
+            showReadyToast = false
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if optimizationTask != nil {
@@ -634,6 +639,8 @@ private struct ScanHistoryDetail: View {
     /// ready the card shares it.
     @ViewBuilder
     private var primaryAction: some View {
+        ExportMethodPicker(method: $exportMethod)
+            .disabled(busy)
         if let archive {
             Button { SystemShare.present([archive]) } label: {
                 DSActionCardLabel(title: L10n.text("分享掃描"), subtitle: L10n.text("檔案已準備好，點此分享"),
@@ -648,7 +655,7 @@ private struct ScanHistoryDetail: View {
             let exporting = busy && optimizationTask == nil
             Button { Task { await makeArchive() } } label: {
                 DSActionCardLabel(title: exporting ? L10n.text("處理中…") : L10n.text("匯出 3DGS 訓練資料"),
-                                  subtitle: L10n.text("照片、相機姿態與點雲，可在電腦上訓練"), tint: DS.Palette.info) {
+                                  subtitle: exportMethod == .arkit ? exportMethod.notice : L10n.text("照片資料，需先在電腦重建姿態"), tint: DS.Palette.info) {
                     if exporting { ProgressView().tint(DS.Palette.info) }
                     else { DSActionIcon(symbol: "square.and.arrow.up", tint: DS.Palette.info) }
                 }
@@ -724,7 +731,10 @@ private struct ScanHistoryDetail: View {
         busy = true
         defer { busy = false }
         do {
-            archive = try await ScanLibrary.shared.archive(currentEntry)
+            let method = exportMethod
+            let url = try await ScanLibrary.shared.archive(currentEntry, method: method)
+            guard method == exportMethod else { return }
+            archive = url
             selection = await ScanLibrary.shared.trainingSelection(currentEntry)
             poseNotice = await ScanLibrary.shared.poseRefinementNotice(currentEntry)
             withAnimation(DS.springy) { showReadyToast = true }

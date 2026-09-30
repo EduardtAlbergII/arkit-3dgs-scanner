@@ -1,4 +1,10 @@
 // App text. Keep keys and format placeholders in sync across languages.
+"ARKit" = "ARKit";
+"電腦 COLMAP 重建至少需要 3 張可用照片" = "Desktop COLMAP reconstruction requires at least 3 usable photos.";
+"COLMAP（電腦）" = "COLMAP (computer)";
+"匯出姿態來源" = "Export pose source";
+"照片資料，需先在電腦重建姿態" = "Photo inputs; reconstruct poses on a computer first";
+"需在電腦安裝 COLMAP，以照片重新估算姿態。手機不執行 COLMAP，也不會上傳資料。" = "Requires COLMAP installed on a computer to re-estimate poses from photos. COLMAP does not run on the phone, and no data is uploaded.";
 "  ← 目前使用" = "  ← Current";
 "%@ 分鐘前" = "%@ min ago";
 "%@ 天前" = "%@ days ago";
